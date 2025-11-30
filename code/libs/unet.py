@@ -227,6 +227,13 @@ class UNet(nn.Module):
         You can use the encoder part as a reference.
         """
         # decoder
+        for resblock, transformer, upsample in self.decoder:
+            x = torch.cat((x, encoder_output.pop()), dim=1)
+            x = resblock(x, t)
+            if transformer:
+                x = transformer(x, c)
+            if upsample:
+                x = upsample(x)
 
         x = self.final_conv(x)
         return x

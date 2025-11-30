@@ -169,8 +169,8 @@ class DDPM(nn.Module):
         """
         Fill in the missing code here. See Equation 4 in DDPM paper.
         """
-        # x_t =
-        # return x_t
+        x_t = sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+        return x_t
 
     # compute the simplified loss
     def compute_loss(self, x_start, label, noise=None):
@@ -179,14 +179,24 @@ class DDPM(nn.Module):
         Fill in the missing code here. Algorithm 1 line 3-5 in the paper.
         For latent DDPMs, an additional encoding step will be needed.
         """
-        # return loss
+        if self.use_vae:
+            x_start = self.vae.encode(x_start)
+
+        if noise is None:
+            noise = torch.randn_like(x_start)
+            
+        batch_size = x_start.shape[0]
+        t = torch.randint(0, self.timesteps, (batch_size,), device=x_start.device)
+        x_t = self.q_sample(x_start, t, noise)
+        noise_pred = self.model(x_t, label, t)
+        loss = F.mse_loss(noise, noise_pred)
+        return loss
 
     @torch.no_grad()
     def p_sample(self, x, label, t, t_index):
         """
         Denoise a noisy image at time step t (single step)
         """
-
         betas_t = self._extract(self.betas, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = self._extract(
             self.sqrt_one_minus_alphas_cumprod, t, x.shape
@@ -197,7 +207,11 @@ class DDPM(nn.Module):
         Fill in the missing code here. See Equation 11 (also Algorithm 2 line 3-4)
         in DDPM paper.
         """
-        # mu =
+        noise_pred = self.model(x, label, t)
+        mu = sqrt_recip_alphas_t * (x - (betas_t * noise_pred / sqrt_one_minus_alphas_cumprod_t))
+
+        x_denoised = mu + (1-betas_t) * torch.randn_like(x) if t_index > 0 else mu
+        return x_denoised
 
     @torch.no_grad()
     def generate(self, labels):
@@ -216,7 +230,11 @@ class DDPM(nn.Module):
         Fill in the missing code here. See Equation 11 / Algorithm 2 in DDPM paper.
         For latent DDPMs, an additional decoding step will be needed.
         """
-        # for ...
+        for i in reversed(range(self.timesteps)):
+            t = torch.full((len(labels),), i, device=device)
+            imgs = self.p_sample(imgs, labels, t, i)
+        if self.use_vae:
+            imgs = self.vae.decode(imgs)
 
         # postprocessing the images
         imgs = self.postprocess(imgs)
