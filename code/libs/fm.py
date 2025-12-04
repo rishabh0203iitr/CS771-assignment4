@@ -99,8 +99,20 @@ class FM(nn.Module):
         #   distribution. See https://arxiv.org/abs/2403.03206
         # 3. sample probability path by generating noise and mix it with input
         # 4. matching the flow by MSE loss
+        if self.use_vae:
+            x_start = self.vae.encoder(x_start)
 
-        # return loss
+        if noise is None:
+            noise = torch.randn_like(x_start)
+        
+        batch_size = x_start.shape[0]
+        device = x_start.device
+
+        t = torch.rand(batch_size, device=device)
+
+        loss = F.mse_loss(x_start-noise, self.model(t.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)*x_start + (1-t.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1))*noise, label, t))
+
+        return loss
 
     @torch.no_grad()
     def generate(self, labels):
@@ -121,7 +133,16 @@ class FM(nn.Module):
         # 1. sample dense time steps on the trajectory (t:0->1)
         # 2. draw images by following forward trajectory predicted by learned model
         # 3. optional decoding step
+        n_steps = 8
+        time_steps = torch.linspace(0, 1.0, n_steps + 1).repeat(len(labels),1).to(device)
+        for i in range(n_steps):
+            t = time_steps[:,i]
+            t_next = time_steps[:,i+1]
+            dt = t_next - t
+            imgs = imgs + dt.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * self.model(imgs, labels, t)
 
+        if self.use_vae:
+            imgs = self.vae.decoder(imgs)
         # postprocessing the images
         imgs = self.postprocess(imgs)
         return imgs

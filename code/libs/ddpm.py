@@ -180,7 +180,7 @@ class DDPM(nn.Module):
         For latent DDPMs, an additional encoding step will be needed.
         """
         if self.use_vae:
-            x_start = self.vae.encode(x_start)
+            x_start = self.vae.encoder(x_start)
 
         if noise is None:
             noise = torch.randn_like(x_start)
@@ -207,10 +207,11 @@ class DDPM(nn.Module):
         Fill in the missing code here. See Equation 11 (also Algorithm 2 line 3-4)
         in DDPM paper.
         """
+        posterior_variance_t = self._extract(self.posterior_variance, t, x.shape)
         noise_pred = self.model(x, label, t)
         mu = sqrt_recip_alphas_t * (x - (betas_t * noise_pred / sqrt_one_minus_alphas_cumprod_t))
 
-        x_denoised = mu + (1-betas_t) * torch.randn_like(x) if t_index > 0 else mu
+        x_denoised = mu + torch.sqrt(posterior_variance_t) * torch.randn_like(x) if t_index > 0 else mu
         return x_denoised
 
     @torch.no_grad()
@@ -234,7 +235,7 @@ class DDPM(nn.Module):
             t = torch.full((len(labels),), i, device=device)
             imgs = self.p_sample(imgs, labels, t, i)
         if self.use_vae:
-            imgs = self.vae.decode(imgs)
+            imgs = self.vae.decoder(imgs)
 
         # postprocessing the images
         imgs = self.postprocess(imgs)
